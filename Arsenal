@@ -1,0 +1,242 @@
+# -- Serviços
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+-- Configurações
+local ativo = false
+local silentAim = false
+local infiniteAmmo = false
+local FOV_RADIUS = 150
+local AIM_SPEED = 0.15
+
+-- UI Rayfield
+local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
+
+local Window = Rayfield:CreateWindow({
+	Name = "🔫 Aimbot + ESP + Silent Aim + Ammo",
+	LoadingTitle = "Carregando Script...",
+	LoadingSubtitle = "by ChatGPT",
+	ConfigurationSaving = {
+		Enabled = false
+	},
+	Discord = {
+		Enabled = false
+	},
+	KeySystem = false
+})
+
+-- Criação de Seções
+local mainTab = Window:CreateTab("🎯 Aimbot")
+local ammoTab = Window:CreateTab("🔫 Munição")
+local configTab = Window:CreateTab("⚙️ Configuração")
+
+-- FOV Visual
+local gui = Instance.new("ScreenGui", LocalPlayer:WaitForChild("PlayerGui"))
+gui.Name = "AimbotVisual"
+gui.ResetOnSpawn = false
+
+local fovCircle = Instance.new("Frame", gui)
+fovCircle.Size = UDim2.new(0, FOV_RADIUS * 2, 0, FOV_RADIUS * 2)
+fovCircle.AnchorPoint = Vector2.new(0.5, 0.5)
+fovCircle.Position = UDim2.new(0.5, 0, 0.5, 0)
+fovCircle.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+fovCircle.BackgroundTransparency = 0.7
+fovCircle.BorderSizePixel = 0
+fovCircle.Visible = false
+Instance.new("UICorner", fovCircle).CornerRadius = UDim.new(1, 0)
+
+-- Funções Auxiliares
+local function isEnemy(player)
+	return player ~= LocalPlayer and player.Team ~= LocalPlayer.Team
+end
+
+local function clearAllESP()
+	for _, player in pairs(Players:GetPlayers()) do
+		if player.Character and player.Character:FindFirstChild("ESPBox") then
+			player.Character.ESPBox:Destroy()
+		end
+	end
+end
+
+local function criarESP(player)
+	if not player.Character or player.Character:FindFirstChild("ESPBox") then return end
+
+	local esp = Instance.new("BillboardGui")
+	esp.Name = "ESPBox"
+	esp.Adornee = player.Character:WaitForChild("HumanoidRootPart")
+	esp.Size = UDim2.new(4, 0, 5, 0)
+	esp.AlwaysOnTop = true
+	esp.Parent = player.Character
+
+	local frame = Instance.new("Frame", esp)
+	frame.Size = UDim2.new(1, 0, 1, 0)
+	frame.BackgroundColor3 = (player.Team and player.Team.TeamColor and player.Team.TeamColor.Color) or Color3.fromRGB(255, 0, 0)
+	frame.BackgroundTransparency = 0.4
+	frame.BorderSizePixel = 1
+	frame.BorderColor3 = Color3.new(1, 1, 1)
+end
+
+local function aplicarESP()
+	clearAllESP()
+	for _, player in pairs(Players:GetPlayers()) do
+		if isEnemy(player) and player.Character then
+			criarESP(player)
+		end
+		player.CharacterAdded:Connect(function()
+			task.wait(1)
+			if isEnemy(player) then
+				criarESP(player)
+			end
+		end)
+	end
+end
+
+local function getClosestEnemy()
+	local closestDist = math.huge
+	local target = nil
+
+	for _, player in pairs(Players:GetPlayers()) do
+		if isEnemy(player) and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+			local pos = player.Character.HumanoidRootPart.Position
+			local screenPos, onScreen = Camera:WorldToViewportPoint(pos)
+
+			if onScreen then
+				local dist = (Vector2.new(screenPos.X, screenPos.Y) - Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)).Magnitude
+				if dist < FOV_RADIUS and dist < closestDist then
+					closestDist = dist
+					target = player
+				end
+			end
+		end
+	end
+
+	return target
+end
+
+-- Aimbot Loop
+RunService.RenderStepped:Connect(function()
+	fovCircle.Size = UDim2.new(0, FOV_RADIUS * 2, 0, FOV_RADIUS * 2)
+	fovCircle.Position = UDim2.new(0.5, 0, 0.5, 0)
+	fovCircle.Visible = ativo
+
+	if not ativo then return end
+
+	local target = getClosestEnemy()
+	if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+		local targetPos = target.Character.HumanoidRootPart.Position
+		local direction = (targetPos - Camera.CFrame.Position).Unit
+		local newCFrame = CFrame.new(Camera.CFrame.Position, Camera.CFrame.Position + direction)
+		Camera.CFrame = Camera.CFrame:Lerp(newCFrame, AIM_SPEED)
+	end
+end)
+
+-- Infinite Ammo
+RunService.RenderStepped:Connect(function()
+	if infiniteAmmo then
+		local tool = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Tool")
+		if tool and tool:FindFirstChild("Ammo") then
+			tool.Ammo.Value = 999
+		end
+	end
+end)
+
+-- Silent Aim Hook
+local mt = getrawmetatable(game)
+setreadonly(mt, false)
+local oldNamecall = mt.__namecall
+
+mt.__namecall = newcclosure(function(self, ...)
+	local method = getnamecallmethod()
+	local args = {...}
+
+	if silentAim and tostring(method) == "FireServer" and tostring(self) == "HitPart" then
+		local target = getClosestEnemy()
+		if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+			args[2] = target.Character.HumanoidRootPart
+			args[3] = target.Character.HumanoidRootPart.Position + Vector3.new(0, 1.5, 0)
+			return oldNamecall(self, unpack(args))
+		end
+	end
+
+	if infiniteAmmo and tostring(self):lower():find("reload") and method == "FireServer" then
+		return nil
+	end
+
+	return oldNamecall(self, ...)
+end)
+
+-- Rayfield UI Elements
+mainTab:CreateToggle({
+	Name = "🎯 Ativar Aimbot + ESP",
+	CurrentValue = false,
+	Callback = function(state)
+		ativo = state
+		if ativo then
+			aplicarESP()
+		else
+			clearAllESP()
+			fovCircle.Visible = false
+		end
+	end,
+})
+
+mainTab:CreateToggle({
+	Name = "🕵️ Silent Aim",
+	CurrentValue = false,
+	Callback = function(state)
+		silentAim = state
+	end,
+})
+
+ammoTab:CreateToggle({
+	Name = "🔫 Munição Infinita (Arsenal)",
+	CurrentValue = false,
+	Callback = function(state)
+		infiniteAmmo = state
+	end,
+})
+
+configTab:CreateButton({
+	Name = "➕ Aumentar FOV",
+	Callback = function()
+		FOV_RADIUS = math.clamp(FOV_RADIUS + 20, 50, 300)
+	end
+})
+
+configTab:CreateButton({
+	Name = "➖ Diminuir FOV",
+	Callback = function()
+		FOV_RADIUS = math.clamp(FOV_RADIUS - 20, 50, 300)
+	end
+})
+
+configTab:CreateInput({
+	Name = "🔧 FOV Manual (50 - 300)",
+	PlaceholderText = "Digite o valor do FOV...",
+	RemoveTextAfterFocusLost = true,
+	Callback = function(input)
+		local num = tonumber(input)
+		if num then
+			FOV_RADIUS = math.clamp(num, 50, 300)
+		end
+	end
+})
+
+-- ESP Dinâmico para Novos Jogadores
+Players.PlayerAdded:Connect(function(player)
+	player.CharacterAdded:Connect(function()
+		task.wait(1)
+		if ativo and isEnemy(player) then
+			criarESP(player)
+		end
+	end)
+
+	if player.Character then
+		task.wait(1)
+		if ativo and isEnemy(player) then
+			criarESP(player)
+		end
+	end
+end)
